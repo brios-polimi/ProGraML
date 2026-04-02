@@ -22,10 +22,10 @@ def programl_deps():
 
   http_archive(
     name="llvm",
-    sha256 = "646f0da3a57909d8e479253a8a9274b866d28307e31b23fff8475aefcc8157b9",
-    strip_prefix="bazel_llvm-cb4efd451e3c71b14663b38cfbe3348d3cbd485b",
+    sha256 = "ca70613cfd98c113dda4720bf726a6d0a6e185f5a520112f324744cfe37737d9",
+    strip_prefix="bazel_llvm-7bd757edcd06e5da5e7bfd4e3575d55ee9166fc0",
     urls=[
-      "https://github.com/ChrisCummins/bazel_llvm/archive/cb4efd451e3c71b14663b38cfbe3348d3cbd485b.tar.gz"
+      "https://github.com/brios-polimi/bazel_llvm/archive/7bd757edcd06e5da5e7bfd4e3575d55ee9166fc0.tar.gz"
     ],
   )
 
