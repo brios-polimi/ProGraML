@@ -1,5 +1,7 @@
 workspace(name = "programl")
 
+local_repository(name = "llvm", path = "../bazel_llvm")
+
 # ----------------- Begin ProGraML dependencies -----------------
 load("@programl//tools:bzl/deps.bzl", "programl_deps")
 

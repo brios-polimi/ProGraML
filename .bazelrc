@@ -1,21 +1,26 @@
 # See: https://bazel.build/versions/master/docs/bazel-user-manual.html#flag--compilation_mode
 
-# This project requires c++14.
+# This project requires c++17 for LLVM 16 support.
 #
 # NOTE(cummins): This flag has to be pushed out to the copts argument of a
 # handful of cxx targets, grep for them when changing the standard.
 #
 # NOTE(cummins): LLVM 3.8 is not compatible with C++17 or later.
-build --cxxopt='-std=c++14'
-test --cxxopt='-std=c++14'
+#build:gcc12 --cxxopt=-std=c++23
+build:gcc12 --cxxopt=-std=c++17
+build:gcc12 --host_cxxopt=-std=c++17
+build:gcc12 --per_file_copt=external/com_google_absl/.*@-std=c++17
+#build:gcc11 --cxxopt=-Wall
+
+build --cxxopt=-std=c++17
+build --host_cxxopt=-std=c++17
+test --cxxopt=-std=c++17
+query --cxxopt=-std=c++17
 
 # Workaround for broken grpc build on macOS.
 # See: https://github.com/bazelbuild/bazel/issues/4341
-build --copt -DGRPC_BAZEL_BUILD
-test --copt -DGRPC_BAZEL_BUILD
-
-# Show test error output. Override using --test_output={summary,full}.
-test --test_output=errors
+build --copt=-DGRPC_BAZEL_BUILD
+test --copt=-DGRPC_BAZEL_BUILD
 
 # Show test error output. Override using --test_output={summary,full}.
 test --test_output=errors
@@ -44,7 +49,6 @@ build:tsan --linkopt -fsanitize=thread
 # --config msan: Memory sanitizer
 build:msan --strip=never
 build:msan --copt -fsanitize=memory
-build:msan --copt -DADDRESS_SANITIZER
 build:msan --copt -O1
 build:msan --copt -fno-omit-frame-pointer
 build:msan --linkopt -fsanitize=memory
@@ -67,3 +71,9 @@ build:ci --action_env=PATH
 build:ci --keep_going
 build:ci --verbose_failures
 build:ci --test_output=errors
+
+# Force C++17 - overrides toolchain cxx_flags permanently
+build --cxxopt=-std=c++17
+build --host_cxxopt=-std=c++17
+build --action_env=BAZEL_CXXOPTS=-std=c++17
+build --linkopt=-fuse-ld=lld

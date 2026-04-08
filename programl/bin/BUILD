@@ -26,7 +26,7 @@
 filegroup(
     name = "bin",
     srcs = [
-        ":clang2graph-10",
+        # ":clang2graph-10",
         ":graph2dot",
         ":graph2json",
         ":llvm2graph-16",
@@ -97,39 +97,39 @@ cc_binary(
     ],
 )
 
-genrule(
-    name = "clang2graph-bin",
-    srcs = [":clang2graph-10-prelinked"],
-    outs = ["clang2graph-10"],
-    cmd = select({
-        "@llvm//:darwin": (
-            "cp $(location :clang2graph-10-prelinked) $@"
-        ),
-        "//conditions:default": (
-            "cp $(location :clang2graph-10-prelinked) $@ && " +
-            "chmod 666 $@ && " +
-            "patchelf --set-rpath '$$ORIGIN' $@ && " +
-            "patchelf --replace-needed libLLVMPolly.so libLLVMPolly.so.10.0.0 $@ && " +
-            "chmod 555 $@"
-        ),
-    }),
-    visibility = ["//visibility:public"],
-)
+# genrule(
+#     name = "clang2graph-bin",
+#     srcs = [":clang2graph-10-prelinked"],
+#     outs = ["clang2graph-10"],
+#     cmd = select({
+#         "@llvm//:darwin": (
+#             "cp $(location :clang2graph-10-prelinked) $@"
+#         ),
+#         "//conditions:default": (
+#             "cp $(location :clang2graph-10-prelinked) $@ && " +
+#             "chmod 666 $@ && " +
+#             "patchelf --set-rpath '$$ORIGIN' $@ && " +
+#             "patchelf --replace-needed libLLVMPolly.so libLLVMPolly.so.10.0.0 $@ && " +
+#             "chmod 555 $@"
+#         ),
+#     }),
+#     visibility = ["//visibility:public"],
+# )
 
-cc_binary(
-    name = "clang2graph-10-prelinked",
-    srcs = ["clang2graph.cc"],
-    copts = [
-        "-std=c++14",
-        "-fno-rtti",
-    ],
-    deps = [
-        "//programl/ir/llvm:llvm-10",
-        "//programl/proto:programl_cc",
-        "@labm8//labm8/cpp:status",
-        "@llvm//10.0.0",
-    ],
-)
+# cc_binary(
+#     name = "clang2graph-10-prelinked",
+#     srcs = ["clang2graph.cc"],
+#     copts = [
+#         "-std=c++14",
+#         "-fno-rtti",
+#     ],
+#     deps = [
+#         "//programl/ir/llvm:llvm-10",
+#         "//programl/proto:programl_cc",
+#         "@labm8//labm8/cpp:status",
+#         "@llvm//10.0.0",
+#     ],
+# )
 
 cc_binary(
     name = "graph2cdfg",
@@ -311,7 +311,7 @@ genrule(
 cc_binary(
     name = "llvm2graph-16-prelinked",
     srcs = ["llvm2graph.cc"],
-    copts = ["-std=c++14"],
+    copts = ["-std=c++17"],
     deps = [
         "//programl:version_header",
         "//programl/ir/llvm:llvm-16",

@@ -19,7 +19,9 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IRReader/IRReader.h"
 #include "llvm/Support/SourceMgr.h"
+#if LLVM_VERSION_MAJOR < 16
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#endif
 #include "programl/ir/llvm/internal/program_graph_builder_pass.h"
 #include "programl/proto/program_graph.pb.h"
 
@@ -32,15 +34,18 @@ namespace llvm {
 Status BuildProgramGraph(::llvm::Module& module, ProgramGraph* graph,
                          const ProgramGraphOptions& options) {
   ::llvm::legacy::PassManager passManager;
+
+#if LLVM_VERSION_MAJOR < 16
+  // PassManagerBuilder removed in LLVM 16. For graph construction against
+  // HLS IR we do not optimize — the input IR is already processed by the
+  // HLS tool's own pipeline.
   ::llvm::PassManagerBuilder passManagerBuilder;
   passManagerBuilder.OptLevel = options.opt_level();
   passManagerBuilder.populateModulePassManager(passManager);
+#endif
 
-  // Create a graph builder pass. Ownership of this pointer is transferred to
-  // legacy::PassManager on add().
   internal::ProgramGraphBuilderPass* pass = new internal::ProgramGraphBuilderPass(options);
   passManager.add(pass);
-
   passManager.run(module);
   ASSIGN_OR_RETURN(*graph, pass->GetProgramGraph());
   return Status::OK;
