@@ -304,7 +304,7 @@ Node* ProgramGraphBuilder::AddLlvmInstruction(const ::llvm::Instruction* instruc
   node->set_block(blockCount_);
   graph::AddScalarFeature(node, "full_text", text.text);
 
-#if PROGRAML_LLVM_VERSION_MAJOR > 3
+#if PROGRAML_LLVM_VERSION_MAJOR > 3 && PROGRAML_LLVM_VERSION_MAJOR < 16
   // Add profiling information features, if available.
   uint64_t profTotalWeight;
   if (instruction->extractProfTotalWeight(profTotalWeight)) {
@@ -413,6 +413,8 @@ Node* ProgramGraphBuilder::AddLlvmType(const ::llvm::PointerType* type) {
   Node* node = AddType("*");
   graph::AddScalarFeature(node, "full_text", textEncoder_.Encode(type).text);
 
+// Opaque pointers in LLVM > 16
+#if PROGRAML_LLVM_VERSION_MAJOR < 16
   auto elementType = type->getElementType();
   auto parent = compositeTypeParts_.find(elementType);
   if (parent == compositeTypeParts_.end()) {
@@ -423,6 +425,7 @@ Node* ProgramGraphBuilder::AddLlvmType(const ::llvm::PointerType* type) {
     // Bottom-out for self-referencing types.
     CHECK(AddTypeEdge(/*position=*/0, parent->second, node).ok());
   }
+#endif
 
   return node;
 }
@@ -475,9 +478,13 @@ labm8::StatusOr<ProgramGraph> ProgramGraphBuilder::Build(const ::llvm::Module& m
 
   for (const ::llvm::Function& function : module) {
     // Create the function message.
+#if PROGRAML_LLVM_VERSION_MAJOR >= 16
+    Function* functionMessage = AddFunction(function.getName().str(), moduleMessage);
+#else
     Function* functionMessage = AddFunction(function.getName(), moduleMessage);
+#endif
 
-#if PROGRAML_LLVM_VERSION_MAJOR > 6
+#if PROGRAML_LLVM_VERSION_MAJOR > 6 && PROGRAML_LLVM_VERSION_MAJOR < 16
     // Add profiling information, if available.
     if (function.hasProfileData()) {
       auto profileCount = function.getEntryCount();
@@ -486,7 +493,7 @@ labm8::StatusOr<ProgramGraph> ProgramGraphBuilder::Build(const ::llvm::Module& m
       functionMessage->mutable_features()->mutable_feature()->insert(
           {"llvm_profile_entry_count", feature});
     }
-#elif PROGRAML_LLVM_VERSION_MAJOR > 3
+#elif PROGRAML_LLVM_VERSION_MAJOR > 3 && PROGRAML_LLVM_VERSION_MAJOR < 16
     // Add profiling information, if available.
     if (function.hasProfileData()) {
       auto profileCount = function.getEntryCount();

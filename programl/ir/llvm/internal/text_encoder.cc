@@ -48,7 +48,11 @@ string PrintToString(const T& value) {
 // dereferencing.
 const ::llvm::Type* GetDereferencedType(const ::llvm::Type* type, int* pointerDepth) {
   CHECK(type) << "nullptr type at pointer depth " << *pointerDepth;
+#if LLVM_VERSION_MAJOR >= 16
+  if (type->isPointerTy() && !type->isOpaquePointerTy()) {
+#else
   if (type->isPointerTy()) {
+#endif
     *pointerDepth = *pointerDepth + 1;
     return GetDereferencedType(type->getPointerElementType(), pointerDepth);
   } else {
