@@ -322,42 +322,45 @@ Node* ProgramGraphBuilder::AddLlvmInstruction(const ::llvm::Instruction* instruc
 }
 
 Node* ProgramGraphBuilder::AddLlvmVariable(const ::llvm::Instruction* operand,
-                                           const programl::Function* function) {
+                                            const programl::Function* function) {
   const LlvmTextComponents text = textEncoder_.Encode(operand);
-  Node* node = AddVariable("var", function);
+  Node* node = AddVariable(text.lhs_type, function);  // Was: AddVariable("var", function);
   node->set_block(blockCount_);
   graph::AddScalarFeature(node, "full_text", text.lhs);
 
-  compositeTypeParts_.clear();  // Reset after previous call.
-  Node* type = GetOrCreateType(operand->getType());
-  CHECK(AddTypeEdge(/*position=*/0, type, node).ok());
+  // Remove type node creation and edge entirely
+  // compositeTypeParts_.clear();  // Reset after previous call.
+  // Node* type = GetOrCreateType(operand->getType());
+  // CHECK(AddTypeEdge(/*position=*/0, type, node).ok());
 
   return node;
 }
 
 Node* ProgramGraphBuilder::AddLlvmVariable(const ::llvm::Argument* argument,
-                                           const programl::Function* function) {
+                                            const programl::Function* function) {
   const LlvmTextComponents text = textEncoder_.Encode(argument);
-  Node* node = AddVariable("var", function);
+  Node* node = AddVariable(text.lhs_type, function);  // Was: AddVariable("var", function);
   node->set_block(blockCount_);
   graph::AddScalarFeature(node, "full_text", text.lhs);
 
-  compositeTypeParts_.clear();  // Reset after previous call.
-  Node* type = GetOrCreateType(argument->getType());
-  CHECK(AddTypeEdge(/*position=*/0, type, node).ok());
+  // Remove type node creation and edge
+  // compositeTypeParts_.clear();  // Reset after previous call.
+  // Node* type = GetOrCreateType(argument->getType());
+  // CHECK(AddTypeEdge(/*position=*/0, type, node).ok());
 
   return node;
 }
 
 Node* ProgramGraphBuilder::AddLlvmConstant(const ::llvm::Constant* constant) {
   const LlvmTextComponents text = textEncoder_.Encode(constant);
-  Node* node = AddConstant("val");
+  Node* node = AddConstant(text.lhs_type);  // Was: AddConstant("val");
   node->set_block(blockCount_);
   graph::AddScalarFeature(node, "full_text", text.text);
 
-  compositeTypeParts_.clear();  // Reset after previous call.
-  Node* type = GetOrCreateType(constant->getType());
-  CHECK(AddTypeEdge(/*position=*/0, type, node).ok());
+  // Remove type node creation and edge
+  // compositeTypeParts_.clear();  // Reset after previous call.
+  // Node* type = GetOrCreateType(constant->getType());
+  // CHECK(AddTypeEdge(/*position=*/0, type, node).ok());
 
   return node;
 }
