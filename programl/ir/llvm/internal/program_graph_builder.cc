@@ -416,20 +416,26 @@ Node* ProgramGraphBuilder::AddLlvmType(const ::llvm::PointerType* type) {
   Node* node = AddType("*");
   graph::AddScalarFeature(node, "full_text", textEncoder_.Encode(type).text);
 
-// Opaque pointers in LLVM > 16
-#if PROGRAML_LLVM_VERSION_MAJOR < 16
+#if PROGRAML_LLVM_VERSION_MAJOR >= 16
+  // Opaque pointers have no element type. Typed pointers are retained by the
+  // LLVM 16 context configured in llvm.cc.
+  if (type->isOpaquePointerTy()) {
+    return node;
+  }
+  auto elementType = type->getNonOpaquePointerElementType();
+#else
   auto elementType = type->getElementType();
+#endif
+
   auto parent = compositeTypeParts_.find(elementType);
   if (parent == compositeTypeParts_.end()) {
     // Re-use the type if it already exists to prevent duplication.
-    auto elementNode = GetOrCreateType(type->getElementType());
+    auto elementNode = GetOrCreateType(elementType);
     CHECK(AddTypeEdge(/*position=*/0, elementNode, node).ok());
   } else {
     // Bottom-out for self-referencing types.
     CHECK(AddTypeEdge(/*position=*/0, parent->second, node).ok());
   }
-#endif
-
   return node;
 }
 

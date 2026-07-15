@@ -50,14 +50,15 @@ const ::llvm::Type* GetDereferencedType(const ::llvm::Type* type, int* pointerDe
   CHECK(type) << "nullptr type at pointer depth " << *pointerDepth;
 #if LLVM_VERSION_MAJOR >= 16
   if (type->isPointerTy() && !type->isOpaquePointerTy()) {
+    *pointerDepth = *pointerDepth + 1;
+    return GetDereferencedType(type->getNonOpaquePointerElementType(), pointerDepth);
 #else
   if (type->isPointerTy()) {
-#endif
     *pointerDepth = *pointerDepth + 1;
     return GetDereferencedType(type->getPointerElementType(), pointerDepth);
-  } else {
-    return type;
+#endif
   }
+  return type;
 }
 
 // Specialization for LLVM types which returns "struct" or "struct*" for
@@ -66,6 +67,15 @@ const ::llvm::Type* GetDereferencedType(const ::llvm::Type* type, int* pointerDe
 template <>
 string PrintToString(const ::llvm::Type& value) {
   string str;
+#if LLVM_VERSION_MAJOR >= 16
+  // Typed LLVM 16 pointers retain the named pointee type needed by downstream
+  // type recovery, e.g. %struct.ap_fixed.123*. Do not collapse it to
+  // "struct*" as the legacy encoder does.
+  ::llvm::raw_string_ostream rso(str);
+  value.print(rso);
+  labm8::TrimLeft(str);
+  return str;
+#else
 
   int pointerDepth = 0;
   if (GetDereferencedType(&value, &pointerDepth)->isStructTy()) {
@@ -81,6 +91,7 @@ string PrintToString(const ::llvm::Type& value) {
   }
 
   return str;
+#endif
 }
 
 template <typename T>
