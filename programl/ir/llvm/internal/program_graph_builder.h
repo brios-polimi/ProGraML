@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "labm8/cpp/status.h"
 #include "labm8/cpp/statusor.h"
 #include "labm8/cpp/string.h"
@@ -29,6 +30,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "programl/graph/program_graph_builder.h"
+#include "programl/ir/llvm/internal/debug_info_index.h"
 #include "programl/ir/llvm/internal/text_encoder.h"
 #include "programl/proto/program_graph.pb.h"
 
@@ -63,8 +65,12 @@ using ArgumentConsumerMap =
 // A specialized program graph builder for LLVM-IR.
 class ProgramGraphBuilder : public programl::graph::ProgramGraphBuilder {
  public:
-  explicit ProgramGraphBuilder(const ProgramGraphOptions& options)
-      : programl::graph::ProgramGraphBuilder(options), blockCount_(0) {}
+  explicit ProgramGraphBuilder(const ProgramGraphOptions& options,
+                               const DebugInfoIndex* debugInfo = nullptr)
+      : programl::graph::ProgramGraphBuilder(options),
+        debugInfo_(debugInfo),
+        instructionOrdinal_(0),
+        blockCount_(0) {}
 
   [[nodiscard]] labm8::StatusOr<ProgramGraph> Build(const ::llvm::Module& module);
 
@@ -99,7 +105,15 @@ class ProgramGraphBuilder : public programl::graph::ProgramGraphBuilder {
   Node* AddLlvmType(const ::llvm::VectorType* type);
 
  private:
+  const DebugInfoIndex* debugInfo_;
+
   TextEncoder textEncoder_;
+
+  std::string currentFunctionName_;
+  size_t instructionOrdinal_;
+
+  absl::flat_hash_map<const ::llvm::Instruction*, int64_t> instructionLoops_;
+  absl::flat_hash_set<const ::llvm::Instruction*> loopHeaders_;
 
   int32_t blockCount_;
 

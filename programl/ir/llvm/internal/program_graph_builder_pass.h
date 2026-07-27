@@ -21,6 +21,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Pass.h"
 #include "programl/ir/llvm/internal/program_graph_builder.h"
+#include "programl/ir/llvm/internal/debug_info_index.h"
 #include "programl/proto/program_graph.pb.h"
 
 namespace programl {
@@ -37,10 +38,11 @@ class ProgramGraphBuilderPass : public ::llvm::ModulePass {
  public:
   static char ID;
 
-  explicit ProgramGraphBuilderPass(const ProgramGraphOptions& options)
+  explicit ProgramGraphBuilderPass(const ProgramGraphOptions& options,
+                                   const DebugInfoIndex* debugInfo = nullptr)
       : ModulePass(ID),
         graph_(labm8::Status(labm8::error::Code::FAILED_PRECONDITION, "runOnModule() not called")),
-        graphBuilder_(options) {}
+        graphBuilder_(options, debugInfo) {}
 
   bool runOnModule(::llvm::Module& module) override;
 

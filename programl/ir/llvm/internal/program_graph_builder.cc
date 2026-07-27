@@ -16,6 +16,7 @@
 #include "programl/ir/llvm/internal/program_graph_builder.h"
 
 #include <deque>
+#include <functional>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
@@ -28,6 +29,10 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
+#if PROGRAML_LLVM_VERSION_MAJOR >= 16
+#include "llvm/Analysis/LoopInfo.h"
+#include "llvm/IR/Dominators.h"
+#endif
 #if PROGRAML_LLVM_VERSION_MAJOR > 3
 #include "llvm/IR/ProfileSummary.h"
 #endif
@@ -41,6 +46,19 @@ namespace programl {
 namespace ir {
 namespace llvm {
 namespace internal {
+
+namespace {
+
+std::string LlvmValueName(const std::string& lhs) {
+  const size_t position = lhs.find_last_of(" %@");
+  if (position == std::string::npos) {
+    return lhs;
+  }
+  const size_t start = lhs[position] == ' ' ? position + 1 : position;
+  return lhs.substr(start);
+}
+
+}  // namespace
 
 labm8::StatusOr<BasicBlockEntryExit> ProgramGraphBuilder::VisitBasicBlock(
     const ::llvm::BasicBlock& block, const Function* functionMessage, InstructionMap* instructions,
@@ -170,6 +188,36 @@ labm8::StatusOr<BasicBlockEntryExit> ProgramGraphBuilder::VisitBasicBlock(
 
 labm8::StatusOr<FunctionEntryExits> ProgramGraphBuilder::VisitFunction(
     const ::llvm::Function& function, const Function* functionMessage) {
+  currentFunctionName_ = function.getName().str();
+  instructionOrdinal_ = 0;
+
+#if PROGRAML_LLVM_VERSION_MAJOR >= 16
+  if (!function.isDeclaration()) {
+    ::llvm::DominatorTree dominatorTree(
+        const_cast<::llvm::Function&>(function));
+    ::llvm::LoopInfo loopInfo(dominatorTree);
+    int64_t nextLoopId = 0;
+    std::function<void(const ::llvm::Loop*)> recordLoop =
+        [&](const ::llvm::Loop* loop) {
+          const int64_t loopId = nextLoopId++;
+          for (const ::llvm::BasicBlock* block : loop->blocks()) {
+            for (const ::llvm::Instruction& instruction : *block) {
+              instructionLoops_[&instruction] = loopId;
+            }
+          }
+          const ::llvm::BasicBlock* header = loop->getHeader();
+          if (header && !header->empty()) {
+            loopHeaders_.insert(&header->front());
+          }
+          for (const ::llvm::Loop* child : loop->getSubLoops()) {
+            recordLoop(child);
+          }
+        };
+    for (const ::llvm::Loop* loop : loopInfo) {
+      recordLoop(loop);
+    }
+  }
+#endif
   // A map from basic blocks to <entry,exit> nodes.
   absl::flat_hash_map<const ::llvm::BasicBlock*, BasicBlockEntryExit> blocks;
   // A map from function Arguments to the statements that consume them, and the
@@ -304,6 +352,26 @@ Node* ProgramGraphBuilder::AddLlvmInstruction(const ::llvm::Instruction* instruc
   node->set_block(blockCount_);
   graph::AddScalarFeature(node, "full_text", text.text);
 
+  if (debugInfo_) {
+    const auto functionIt = debugInfo_->instruction_debug_ids.find(currentFunctionName_);
+    if (functionIt != debugInfo_->instruction_debug_ids.end() &&
+        instructionOrdinal_ < functionIt->second.size()) {
+      const int64_t debugId = functionIt->second[instructionOrdinal_];
+      if (debugId >= 0) {
+        graph::AddScalarFeature(node, "llvm_debug_id", debugId);
+      }
+    }
+  }
+  ++instructionOrdinal_;
+
+  const auto loopIt = instructionLoops_.find(instruction);
+  if (loopIt != instructionLoops_.end()) {
+    graph::AddScalarFeature(node, "llvm_loop_id", loopIt->second);
+  }
+  if (loopHeaders_.count(instruction)) {
+    graph::AddScalarFeature(node, "llvm_loop_header", int64_t{1});
+  }
+
 #if PROGRAML_LLVM_VERSION_MAJOR > 3 && PROGRAML_LLVM_VERSION_MAJOR < 16
   // Add profiling information features, if available.
   uint64_t profTotalWeight;
@@ -328,6 +396,16 @@ Node* ProgramGraphBuilder::AddLlvmVariable(const ::llvm::Instruction* operand,
   node->set_block(blockCount_);
   graph::AddScalarFeature(node, "full_text", text.lhs);
 
+  if (debugInfo_) {
+    const auto functionIt = debugInfo_->value_variable_ids.find(currentFunctionName_);
+    if (functionIt != debugInfo_->value_variable_ids.end()) {
+      const auto variableIt = functionIt->second.find(LlvmValueName(text.lhs));
+      if (variableIt != functionIt->second.end()) {
+        graph::AddScalarFeature(node, "llvm_source_variable_id", variableIt->second);
+      }
+    }
+  }
+
   // Remove type node creation and edge entirely
   // compositeTypeParts_.clear();  // Reset after previous call.
   // Node* type = GetOrCreateType(operand->getType());
@@ -342,6 +420,18 @@ Node* ProgramGraphBuilder::AddLlvmVariable(const ::llvm::Argument* argument,
   Node* node = AddVariable(text.lhs_type, function);  // Was: AddVariable("var", function);
   node->set_block(blockCount_);
   graph::AddScalarFeature(node, "full_text", text.lhs);
+  graph::AddScalarFeature(node, "llvm_argument_index",
+                          static_cast<int64_t>(argument->getArgNo()));
+
+  if (debugInfo_) {
+    const auto functionIt = debugInfo_->value_variable_ids.find(currentFunctionName_);
+    if (functionIt != debugInfo_->value_variable_ids.end()) {
+      const auto variableIt = functionIt->second.find(LlvmValueName(text.lhs));
+      if (variableIt != functionIt->second.end()) {
+        graph::AddScalarFeature(node, "llvm_source_variable_id", variableIt->second);
+      }
+    }
+  }
 
   // Remove type node creation and edge
   // compositeTypeParts_.clear();  // Reset after previous call.
@@ -493,6 +583,13 @@ labm8::StatusOr<ProgramGraph> ProgramGraphBuilder::Build(const ::llvm::Module& m
     Function* functionMessage = AddFunction(function.getName(), moduleMessage);
 #endif
 
+    if (debugInfo_) {
+      const auto debugIt = debugInfo_->function_debug_ids.find(function.getName().str());
+      if (debugIt != debugInfo_->function_debug_ids.end()) {
+        graph::AddScalarFeature(functionMessage, "llvm_debug_id", debugIt->second);
+      }
+    }
+
 #if PROGRAML_LLVM_VERSION_MAJOR > 6 && PROGRAML_LLVM_VERSION_MAJOR < 16
     // Add profiling information, if available.
     if (function.hasProfileData()) {
@@ -575,6 +672,8 @@ labm8::StatusOr<ProgramGraph> ProgramGraphBuilder::Build(const ::llvm::Module& m
 void ProgramGraphBuilder::Clear() {
   textEncoder_.Clear();
   constants_.clear();
+  instructionLoops_.clear();
+  loopHeaders_.clear();
   blockCount_ = 0;
   callSites_.clear();
   programl::graph::ProgramGraphBuilder::Clear();
