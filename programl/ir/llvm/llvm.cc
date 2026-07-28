@@ -365,11 +365,18 @@ Status BuildProgramGraph(const ::llvm::MemoryBuffer& irBuffer, ProgramGraph* gra
 #if LLVM_VERSION_MAJOR >= 16
   ctx.setOpaquePointers(false);  // Keep typed pointers internally
 #endif
+  const ::llvm::StringRef ir = irBuffer.getBuffer();
+  const bool hasDebugInfo = ir.contains("!dbg") ||
+                            ir.contains("@llvm.dbg.") ||
+                            ir.contains("!DI");
   const internal::DebugInfoIndex debugInfo =
-      BuildDebugInfoIndex(irBuffer.getBuffer());
-  const std::string strippedIr = StripDebugInfo(irBuffer.getBuffer());
-  auto module = ::llvm::parseIR(::llvm::MemoryBufferRef(strippedIr, irBuffer.getBufferIdentifier()),
-                                error, ctx);
+      hasDebugInfo ? BuildDebugInfoIndex(ir) : internal::DebugInfoIndex();
+  const std::string strippedIr = hasDebugInfo ? StripDebugInfo(ir) : "";
+  const ::llvm::MemoryBufferRef parseBuffer =
+      hasDebugInfo
+          ? ::llvm::MemoryBufferRef(strippedIr, irBuffer.getBufferIdentifier())
+          : ::llvm::MemoryBufferRef(ir, irBuffer.getBufferIdentifier());
+  auto module = ::llvm::parseIR(parseBuffer, error, ctx);
   if (!module) {
     // Format an error message in the style of clang, complete with line number,
     // column number, then the offending line and a caret pointing at the

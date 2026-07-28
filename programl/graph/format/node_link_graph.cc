@@ -70,36 +70,42 @@ Status CreateGraphDict(const ProgramGraph& graph, json* graphDict) {
   return Status::OK;
 }
 
+Status CreateNodeDict(const Node& node, int id, json* nodeDict) {
+  *nodeDict = json::object({
+      {"id", id},
+      {"type", node.type()},
+      {"text", node.text()},
+      {"function", node.function()},
+      {"block", node.block()},
+  });
+  return MaybeAddFeatures(node, nodeDict);
+}
+
 Status CreateNodesList(const ProgramGraph& graph, json* nodes) {
   for (int i = 0; i < graph.node_size(); ++i) {
-    const Node& node = graph.node(i);
-
-    // Construct the node dictionary.
-    auto nodeDict = json::object({
-        {"id", i},
-        {"type", node.type()},
-        {"text", node.text()},
-        {"function", node.function()},
-        {"block", node.block()},
-    });
-    RETURN_IF_ERROR(MaybeAddFeatures(node, &nodeDict));
+    auto nodeDict = json::object();
+    RETURN_IF_ERROR(CreateNodeDict(graph.node(i), i, &nodeDict));
     nodes->push_back(nodeDict);
   }
 
   return Status::OK;
 }
 
+Status CreateEdgeDict(const Edge& edge, json* edgeDict) {
+  *edgeDict = json::object({
+      {"flow", edge.flow()},
+      {"position", edge.position()},
+      {"source", edge.source()},
+      {"target", edge.target()},
+      {"key", 0},
+  });
+  return MaybeAddFeatures(edge, edgeDict);
+}
+
 Status CreateLinksList(const ProgramGraph& graph, json* edges) {
   for (int i = 0; i < graph.edge_size(); ++i) {
-    const Edge& edge = graph.edge(i);
-    auto edgeDict = json::object({
-        {"flow", edge.flow()},
-        {"position", edge.position()},
-        {"source", edge.source()},
-        {"target", edge.target()},
-        {"key", 0},
-    });
-    RETURN_IF_ERROR(MaybeAddFeatures(edge, &edgeDict));
+    auto edgeDict = json::object();
+    RETURN_IF_ERROR(CreateEdgeDict(graph.edge(i), &edgeDict));
     edges->push_back(edgeDict);
   }
   return Status::OK;
@@ -147,6 +153,35 @@ Status ProgramGraphToNodeLinkGraph(const ProgramGraph& graph, json* dict) {
   RETURN_IF_ERROR(detail::CreateNodesList(graph, &(*dict)["nodes"]));
   RETURN_IF_ERROR(detail::CreateLinksList(graph, &(*dict)["links"]));
 
+  return Status::OK;
+}
+
+Status WriteProgramGraphNodeLinkJson(const ProgramGraph& graph,
+                                     std::ostream* output) {
+  CHECK(output) << "nullptr for output argument";
+
+  auto graphDict = json::object();
+  RETURN_IF_ERROR(detail::CreateGraphDict(graph, &graphDict));
+  *output << R"({"directed":true,"graph":)" << graphDict
+          << R"(,"links":[)";
+  for (int i = 0; i < graph.edge_size(); ++i) {
+    if (i) {
+      *output << ',';
+    }
+    auto edgeDict = json::object();
+    RETURN_IF_ERROR(detail::CreateEdgeDict(graph.edge(i), &edgeDict));
+    *output << edgeDict;
+  }
+  *output << R"(],"multigraph":true,"nodes":[)";
+  for (int i = 0; i < graph.node_size(); ++i) {
+    if (i) {
+      *output << ',';
+    }
+    auto nodeDict = json::object();
+    RETURN_IF_ERROR(detail::CreateNodeDict(graph.node(i), i, &nodeDict));
+    *output << nodeDict;
+  }
+  *output << "]}";
   return Status::OK;
 }
 

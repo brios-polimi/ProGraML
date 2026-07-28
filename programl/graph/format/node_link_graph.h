@@ -17,6 +17,8 @@
 // limitations under the License.
 #pragma once
 
+#include <ostream>
+
 #include "labm8/cpp/status.h"
 #include "nlohmann/json.hpp"
 #include "programl/proto/program_graph.pb.h"
@@ -33,6 +35,8 @@ namespace format {
 // https://networkx.github.io/documentation/stable/reference/readwrite/json_graph.html
 [[nodiscard]] labm8::Status ProgramGraphToNodeLinkGraph(const ProgramGraph& graph,
                                                         nlohmann::json* dict);
+[[nodiscard]] labm8::Status WriteProgramGraphNodeLinkJson(
+    const ProgramGraph& graph, std::ostream* output);
 
 namespace detail {
 

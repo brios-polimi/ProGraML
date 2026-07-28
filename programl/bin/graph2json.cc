@@ -43,18 +43,25 @@ int main(int argc, char** argv) {
   programl::ProgramGraph graph;
   programl::util::ParseStdinOrDie(&graph);
 
-  auto nodeLinkGraph = json({});
-  Status status = programl::graph::format::ProgramGraphToNodeLinkGraph(graph, &nodeLinkGraph);
-  if (!status.ok()) {
-    std::cerr << "fatal: failed to convert ProgramGraph to node link graph ("
-              << status.error_message() << ')' << std::endl;
-    return 2;
-  }
-
   if (FLAGS_pretty_print) {
+    auto nodeLinkGraph = json({});
+    Status status =
+        programl::graph::format::ProgramGraphToNodeLinkGraph(graph, &nodeLinkGraph);
+    if (!status.ok()) {
+      std::cerr << "fatal: failed to convert ProgramGraph to node link graph ("
+                << status.error_message() << ')' << std::endl;
+      return 2;
+    }
     std::cout << std::setw(2) << nodeLinkGraph << std::endl;
   } else {
-    std::cout << nodeLinkGraph << std::endl;
+    Status status =
+        programl::graph::format::WriteProgramGraphNodeLinkJson(graph, &std::cout);
+    if (!status.ok()) {
+      std::cerr << "fatal: failed to convert ProgramGraph to node link graph ("
+                << status.error_message() << ')' << std::endl;
+      return 2;
+    }
+    std::cout << std::endl;
   }
 
   return 0;
