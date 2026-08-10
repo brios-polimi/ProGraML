@@ -58,6 +58,27 @@ std::string LlvmValueName(const std::string& lhs) {
   return lhs.substr(start);
 }
 
+bool IsIntrinsicLikeFunction(const ::llvm::Function& function) {
+  const auto name = function.getName();
+  return function.isDeclaration() &&
+         (name.startswith("llvm.") || name.startswith("vitis.fpga."));
+}
+
+bool IsNonSemanticMarker(const ::llvm::Instruction& instruction) {
+  const auto* call = ::llvm::dyn_cast<::llvm::CallInst>(&instruction);
+  if (!call) {
+    return false;
+  }
+  const ::llvm::Function* function = call->getCalledFunction();
+  if (!function) {
+    return false;
+  }
+  const auto name = function->getName();
+  return name.startswith("llvm.lifetime.") || name == "llvm.assume" ||
+         name.startswith("llvm.dbg.") ||
+         name == "llvm.experimental.noalias.scope.decl";
+}
+
 }  // namespace
 
 labm8::StatusOr<BasicBlockEntryExit> ProgramGraphBuilder::VisitBasicBlock(
@@ -72,6 +93,14 @@ labm8::StatusOr<BasicBlockEntryExit> ProgramGraphBuilder::VisitBasicBlock(
 
   // Iterate over the instructions of a basic block in-order.
   for (const ::llvm::Instruction& instruction : block) {
+    // Lifetime/debug/assumption intrinsics describe optimizer facts rather
+    // than hardware operations. Omitting them also naturally bypasses them in
+    // the per-block control chain. Keep llvm.sideeffect here: the downstream
+    // HLS pipeline needs its operand bundles to recover pragma targets.
+    if (IsNonSemanticMarker(instruction)) {
+      ++instructionOrdinal_;
+      continue;
+    }
     const LlvmTextComponents text = textEncoder_.Encode(&instruction);
 
     // Create the graph node for the instruction.
@@ -92,7 +121,7 @@ labm8::StatusOr<BasicBlockEntryExit> ProgramGraphBuilder::VisitBasicBlock(
       auto calledFunction = callInstruction->getCalledFunction();
       // TODO(github.com/ChrisCummins/ProGraML/issues/46): Should we handle the
       // case when getCalledFunction() is nil?
-      if (calledFunction) {
+      if (calledFunction && !IsIntrinsicLikeFunction(*calledFunction)) {
         callSites_.insert({instructionMessage, calledFunction});
       }
     }
@@ -576,6 +605,12 @@ labm8::StatusOr<ProgramGraph> ProgramGraphBuilder::Build(const ::llvm::Module& m
   graph::AddScalarFeature(moduleMessage, "llvm_data_layout", module.getDataLayoutStr());
 
   for (const ::llvm::Function& function : module) {
+    // Intrinsic declarations are operators/markers represented by their call
+    // instruction, not source-level functions. Avoid an external placeholder
+    // node and function record for each declaration.
+    if (IsIntrinsicLikeFunction(function)) {
+      continue;
+    }
     // Create the function message.
 #if PROGRAML_LLVM_VERSION_MAJOR >= 16
     Function* functionMessage = AddFunction(function.getName().str(), moduleMessage);
