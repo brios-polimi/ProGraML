@@ -59,6 +59,10 @@ using DataEdge = std::pair<const ::llvm::Instruction*, Node*>;
 // A map from instructions to their node.
 using InstructionMap = absl::flat_hash_map<const ::llvm::Instruction*, Node*>;
 
+// A map from SSA-producing instructions to their shared variable node.
+using InstructionVariableMap =
+    absl::flat_hash_map<const ::llvm::Instruction*, Node*>;
+
 using ArgumentConsumerMap =
     absl::flat_hash_map<const ::llvm::Argument*, std::vector<PositionalNode>>;
 
@@ -88,7 +92,8 @@ class ProgramGraphBuilder : public programl::graph::ProgramGraphBuilder {
 
   [[nodiscard]] labm8::StatusOr<BasicBlockEntryExit> VisitBasicBlock(
       const ::llvm::BasicBlock& block, const Function* functionMessage,
-      InstructionMap* instructionMap, ArgumentConsumerMap* argumentConsumers,
+      InstructionMap* instructionMap, InstructionVariableMap* instructionVariables,
+      ArgumentConsumerMap* argumentConsumers,
       std::vector<DataEdge>* dataEdgesToAdd);
 
   [[nodiscard]] labm8::Status AddCallSite(const Node* source, const FunctionEntryExits& target);

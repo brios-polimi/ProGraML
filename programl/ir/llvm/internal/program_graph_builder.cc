@@ -83,7 +83,8 @@ bool IsNonSemanticMarker(const ::llvm::Instruction& instruction) {
 
 labm8::StatusOr<BasicBlockEntryExit> ProgramGraphBuilder::VisitBasicBlock(
     const ::llvm::BasicBlock& block, const Function* functionMessage, InstructionMap* instructions,
-    ArgumentConsumerMap* argumentConsumers, std::vector<DataEdge>* dataEdgesToAdd) {
+    InstructionVariableMap* instructionVariables, ArgumentConsumerMap* argumentConsumers,
+    std::vector<DataEdge>* dataEdgesToAdd) {
   if (!block.size()) {
     return Status(labm8::error::Code::FAILED_PRECONDITION, "Basic block contains no instructions");
   }
@@ -167,16 +168,22 @@ labm8::StatusOr<BasicBlockEntryExit> ProgramGraphBuilder::VisitBasicBlock(
         //                      V
         //     STATEMENT:  %3 = add nsw i32 %2, 1
         //
-        // To this we create the intermediate data flow node '%2' immediately,
-        // but defer adding the edge from the producer instruction, since we may
-        // not have visited it yet.
-        Node* variable = AddLlvmVariable(operand, functionMessage);
+        // Create one intermediate data-flow node per SSA definition and reuse
+        // it for every consumer. We defer adding its producer edge (and fixing
+        // its block membership) since the producer may not have been visited
+        // yet, e.g. for a loop-carried PHI operand.
+        Node* variable;
+        const auto variableIt = instructionVariables->find(operand);
+        if (variableIt == instructionVariables->end()) {
+          variable = AddLlvmVariable(operand, functionMessage);
+          instructionVariables->insert({operand, variable});
+          dataEdgesToAdd->push_back({operand, variable});
+        } else {
+          variable = variableIt->second;
+        }
 
         // Connect the data -> consumer.
         RETURN_IF_ERROR(AddDataEdge(position, variable, instructionMessage).status());
-
-        // Defer creation of the edge from producer -> data.
-        dataEdgesToAdd->push_back({operand, variable});
       } else if (const auto* operand = ::llvm::dyn_cast<::llvm::Argument>(value)) {
         if (options().instructions_only()) {
           continue;
@@ -257,6 +264,9 @@ labm8::StatusOr<FunctionEntryExits> ProgramGraphBuilder::VisitFunction(
   // visited.
   InstructionMap instructions;
 
+  // A map from each SSA definition to its single shared variable node.
+  InstructionVariableMap instructionVariables;
+
   // A mapping from producer instructions to consumer instructions.
   std::vector<DataEdge> dataEdgesToAdd;
 
@@ -275,7 +285,8 @@ labm8::StatusOr<FunctionEntryExits> ProgramGraphBuilder::VisitFunction(
   for (const ::llvm::BasicBlock& block : function) {
     BasicBlockEntryExit entryExit;
     ASSIGN_OR_RETURN(entryExit, VisitBasicBlock(block, functionMessage, &instructions,
-                                                &argumentConsumers, &dataEdgesToAdd));
+                                                &instructionVariables, &argumentConsumers,
+                                                &dataEdgesToAdd));
     blocks.insert({&block, entryExit});
   }
   if (!blocks.size()) {
@@ -283,10 +294,19 @@ labm8::StatusOr<FunctionEntryExits> ProgramGraphBuilder::VisitFunction(
                   string(function.getName()));
   }
 
+  const ::llvm::BasicBlock* entry = &function.getEntryBlock();
+  auto entryNode = blocks.find(entry);
+  if (entryNode == blocks.end()) {
+    return Status(labm8::error::Code::FAILED_PRECONDITION, "No entry block");
+  }
+
   // Construct the identifier data elements for arguments and connect data
   // edges.
   for (auto it : argumentConsumers) {
     Node* argument = AddLlvmVariable(it.first, functionMessage);
+    // Function arguments are defined at function entry, not in the block that
+    // happened to be visited last.
+    argument->set_block(entryNode->second.first->block());
     for (auto argumentConsumer : it.second) {
       Node* argumentConsumerNode = argumentConsumer.first;
       int32_t position = argumentConsumer.second;
@@ -303,20 +323,13 @@ labm8::StatusOr<FunctionEntryExits> ProgramGraphBuilder::VisitFunction(
                     "Operand references instruction that has not been visited: {}",
                     textEncoder_.Encode(dataEdgeToAdd.first).text);
     }
+    // AddLlvmVariable() runs at the first use, which can be in another block.
+    // SSA values belong to the block containing their defining instruction.
+    dataEdgeToAdd.second->set_block(producer->second->block());
     RETURN_IF_ERROR(AddDataEdge(/*position=*/0, producer->second, dataEdgeToAdd.second).status());
   }
 
-  const ::llvm::BasicBlock* entry = &function.getEntryBlock();
-  if (!entry) {
-    return Status(labm8::error::Code::FAILED_PRECONDITION, "No entry block for function: {}",
-                  string(function.getName()));
-  }
-
   // Construct the <entry, exits> pair.
-  auto entryNode = blocks.find(entry);
-  if (!entry) {
-    return Status(labm8::error::Code::FAILED_PRECONDITION, "No entry block");
-  }
   functionEntryExits.first = entryNode->second.first;
 
   // Traverse the basic blocks in the function, creating control edges between
@@ -473,7 +486,13 @@ Node* ProgramGraphBuilder::AddLlvmVariable(const ::llvm::Argument* argument,
 Node* ProgramGraphBuilder::AddLlvmConstant(const ::llvm::Constant* constant) {
   const LlvmTextComponents text = textEncoder_.Encode(constant);
   Node* node = AddConstant(text.lhs_type);  // Was: AddConstant("val");
-  node->set_block(blockCount_);
+  // Constants are module-level LLVM values. They may be used by instructions
+  // in several functions, so the traversal's current function/block (which is
+  // often the compiler initializer, or the last visited block) is not an
+  // ownership field. Leave ownership unset; downstream graph consumers infer
+  // possible hierarchy owners from constant -> instruction data edges.
+  node->set_function(-1);
+  node->set_block(-1);
   graph::AddScalarFeature(node, "full_text", text.text);
 
   // Remove type node creation and edge
